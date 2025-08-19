@@ -35,20 +35,35 @@ const snd_hit  = new Audio("data:audio/wav;base64,UklGRigAAABXQVZFZm10IBAAAAABAA
 
 // ================== GAME STATE ==================
 let frames = 0;
-const DEGREE = Math.PI/180;
 let state = { current: 0, get START(){return 0}, get GAME(){return 1}, get OVER(){return 2} };
 let score = 0, best = 0;
 let gameOverTime = null;
 
-// ================== SPRITES ==================
+// ================== IMAGES ==================
 const bg = new Image(); bg.src = bg_mountain;
 const logo = new Image(); logo.src = logo_recall;
 const charImg = new Image(); charImg.src = character_img;
 const coinLogo = new Image(); coinLogo.src = coin_img;
 
+// ================== OFFSCREEN CANVAS ==================
+let bgCanvas, bgCtx, coinCanvas, coinCtx;
+bg.onload = () => {
+  bgCanvas = document.createElement("canvas");
+  bgCanvas.width = canvas.width;
+  bgCanvas.height = canvas.height;
+  bgCtx = bgCanvas.getContext("2d");
+  bgCtx.drawImage(bg,0,0,canvas.width,canvas.height);
+};
+coin.onload = () => {
+  coinCanvas = document.createElement("canvas");
+  coinCanvas.width = 30; coinCanvas.height = 30;
+  coinCtx = coinCanvas.getContext("2d");
+  coinCtx.drawImage(coinLogo,0,0,30,30);
+};
+
 // ================== PLAYER ==================
 const player = {
-  x: 150, y: 150, w: 30, h: 60, gravity: 0.1, jump: 3, speed: 0, rotation: 0,
+  x: 150, y: 150, w: 30, h: 60, gravity: 0.1, jump: 3, speed: 0,
   draw(){ ctx.drawImage(charImg, this.x, this.y, this.w, this.h); },
   flap(){ this.speed = -this.jump; snd_flap.play(); },
   update(){
@@ -78,29 +93,26 @@ const pipes = {
   draw(){
     ctx.fillStyle="#6B4C3B";
     this.position.forEach(p=>{
-      // Vẽ top & bottom
       ctx.fillRect(p.x, p.y, this.top.w, this.top.h);
       ctx.fillRect(p.x, p.y + this.top.h + this.gap, this.bottom.w, this.bottom.h);
-      // Vẽ coin nếu còn
-      if(p.coin && coinLogo && (coinLogo.complete || coinLogo.width > 0)){
-        ctx.drawImage(coinLogo, p.x + this.top.w/2 - 15, p.y + this.top.h + this.gap/2 - 15, 30, 30);
+      if(p.coin && coinCanvas){
+        ctx.drawImage(coinCanvas, p.x + this.top.w/2 - 15, p.y + this.top.h + this.gap/2 - 15);
       }
     });
   },
   update(){
     if(state.current!==state.GAME) return;
-
-    // Tạo pipe mới
     if(frames % 150 === 0){
       let y = -Math.floor(Math.random()*100+100);
-      this.position.push({ x: canvas.width, y: y, coin: Math.random()<0.5, passed: false });
+      this.position.push({ x: canvas.width, y: y, coin: Math.random()<0.5, passed:false });
     }
 
-    // Cập nhật pipes
-    this.position.forEach(p=>{
+    // chỉ check pipe gần player
+    for(let i=0; i<this.position.length; i++){
+      const p = this.position[i];
       p.x -= this.dx;
 
-      // Collision với player
+      // collision
       if(player.x < p.x + this.top.w && player.x + player.w > p.x &&
          (player.y < p.y + this.top.h || player.y + player.h > p.y + this.top.h + this.gap)){
         state.current = state.OVER;
@@ -108,123 +120,79 @@ const pipes = {
         gameOverTime = Date.now();
       }
 
-      // Pass pipe
-      if(!p.passed && player.x > p.x + this.top.w){
-        score++;
-        p.passed = true;
-      }
+      // pass pipe
+      if(!p.passed && player.x > p.x + this.top.w){ score++; p.passed = true; }
 
-      // Coin
+      // coin
       if(p.coin &&
          player.x < p.x + 32 && player.x + player.w > p.x &&
          player.y < p.y + this.top.h + this.gap/2 + 16 &&
          player.y + player.h > p.y + this.top.h + this.gap/2 - 16){
-        score += 1;
-        p.coin = false;
-        snd_coin.play();
+        score++; p.coin=false; snd_coin.play();
       }
-    });
 
-    // Giữ lại pipe còn trên màn hình
-    this.position = this.position.filter(p => p.x + this.top.w > 0);
+      // nếu pipe ra khỏi màn hình, loại bỏ sớm
+      if(p.x + this.top.w <= 0){ this.position.shift(); i--; }
+      else break; // chỉ check pipe đầu tiên gần player
+    }
   },
   reset(){ this.position=[]; }
 };
 
 // ================== SCORE ==================
 function drawScore(){
-  ctx.fillStyle = "#fff";
-  ctx.strokeStyle = "#000";
-  ctx.lineWidth = 2;
-  ctx.textAlign = "center";
-
+  ctx.fillStyle = "#fff"; ctx.strokeStyle="#000"; ctx.lineWidth=2; ctx.textAlign="center";
   if(state.current == state.GAME){
     ctx.font = "30px '" + GAME_FONT + "'";
     ctx.fillText(score, canvas.width/2, 50);
     ctx.strokeText(score, canvas.width/2, 50);
-  }
-  else if(state.current == state.OVER){
+  } else if(state.current==state.OVER){
     ctx.font = "30px '" + GAME_FONT + "'";
     ctx.fillText("GAME OVER", canvas.width/2, 100);
     ctx.strokeText("GAME OVER", canvas.width/2, 100);
 
     ctx.font = "20px '" + GAME_FONT + "'";
-    ctx.fillStyle = "#fff";
-    ctx.strokeStyle = "#000";
-    ctx.lineWidth = 1;
-    ctx.fillText("SCORE: " + score, canvas.width/2, 180);
-    ctx.strokeText("SCORE: " + score, canvas.width/2, 180);
+    ctx.fillStyle="#fff"; ctx.strokeStyle="#000"; ctx.lineWidth=1;
+    ctx.fillText("SCORE: "+score, canvas.width/2, 180);
+    ctx.strokeText("SCORE: "+score, canvas.width/2, 180);
+    ctx.fillText("BEST: "+best, canvas.width/2, 220);
+    ctx.strokeText("BEST: "+best, canvas.width/2, 220);
 
-    ctx.fillText("BEST: " + best, canvas.width/2, 220);
-    ctx.strokeText("BEST: " + best, canvas.width/2, 220);
-
-    ctx.fillStyle = "#FF9900";
-    ctx.fillRect(canvas.width/2 - 117, 545, 230, 50);
-
-    ctx.strokeStyle = "#fff";
-    ctx.lineWidth = 5;
-    ctx.strokeRect(canvas.width/2 - 117, 545, 230, 50);
-
-    ctx.fillStyle = "#fff";
-    ctx.font = "21px '" + GAME_FONT + "'";
-    ctx.textAlign = "center";
-    ctx.fillText("RESTART", canvas.width/2, 580);
-
-    playBtnRect = { x: canvas.width/2 - 117, y: 540, w: 230, h: 60 };
+    ctx.fillStyle="#FF9900"; ctx.fillRect(canvas.width/2-117,545,230,50);
+    ctx.strokeStyle="#fff"; ctx.lineWidth=5; ctx.strokeRect(canvas.width/2-117,545,230,50);
+    ctx.fillStyle="#fff"; ctx.font="21px '"+GAME_FONT+"'"; ctx.fillText("RESTART", canvas.width/2,580);
+    playBtnRect = { x:canvas.width/2-117, y:540, w:230, h:60 };
   }
 }
 
 // ================== CONTROL ==================
-function resetGame() {
-  score = 0;
-  pipes.reset();
-  player.y = 150;
-  player.speed = 0;
-  state.current = state.START;
-  gameOverTime = null;
+function resetGame(){
+  score=0; pipes.reset(); player.y=150; player.speed=0; state.current=state.START; gameOverTime=null;
 }
-
 canvas.addEventListener("click", e=>{
   switch(state.current){
-    case state.START:
-      state.current=state.GAME;
-      break;
-    case state.GAME:
-      player.flap();
-      break;
+    case state.START: state.current=state.GAME; break;
+    case state.GAME: player.flap(); break;
     case state.OVER:
-      if(gameOverTime && Date.now() - gameOverTime < 800) return;
-
-      let mx = e.offsetX, my = e.offsetY;
-      if(my>540 && my<600){
-        resetGame();
-      }
+      if(gameOverTime && Date.now()-gameOverTime<800) return;
+      let mx=e.offsetX,my=e.offsetY;
+      if(my>540 && my<600) resetGame();
       break;
   }
 });
 
 // ================== LOOP ==================
 function draw(){
-  ctx.drawImage(bg,0,0,canvas.width,canvas.height);
-  if(state.current==state.START){ ctx.drawImage(logo,canvas.width/2-150,-180,300,500); }
+  if(bgCanvas) ctx.drawImage(bgCanvas,0,0,canvas.width,canvas.height);
+  if(state.current==state.START && logo.complete){
+    ctx.drawImage(logo,canvas.width/2-150,-180,300,500);
+  }
   pipes.draw();
   player.draw();
   drawScore();
 }
-
-function update(){
-  player.update();
-  pipes.update();
-  if(state.current==state.OVER){ best=Math.max(best,score); }
-}
-
-function loop(){
-  update();
-  draw();
-  frames++;
-  requestAnimationFrame(loop);
-}
-
+function update(){ player.update(); pipes.update(); if(state.current==state.OVER) best=Math.max(best,score); }
+function loop(){ update(); draw(); frames++; requestAnimationFrame(loop); }
 loop();
 </script>
 </body>
